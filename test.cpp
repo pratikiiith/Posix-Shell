@@ -12,7 +12,22 @@
 #include<iostream>
 #include <unistd.h>
 #include <sys/types.h>
+#include <fstream>
+#include<vector>
+#include<unordered_map>
+#include <termios.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <stdio.h>
+#include <errno.h>
+#include <string.h>
+#include <iostream>
+#include <string>
 
+#include <fstream>
+#include<vector>
+#include<unordered_map>
+#include "input.cpp"
 /*
 Use these colors to print colored text on the console
 */
@@ -21,23 +36,67 @@ Use these colors to print colored text on the console
 
 using namespace std;
 
-//----Global Variables---
-bool historyread = true;
+#define DEL (127)
+#define ASCII_ESC 27
 
-//------------------------------------------------Def------------------
+//////////////////////////////////////////////////////////////////////////////////////////////////Global Variable
+vector<string> res; //store etc passwrd variables
+//res0 = username , x , 1000, 1000, Pratik , home , bon/bash , PATH
+extern char **environ;
+char *env_arr[]={NULL};
+char *args[10];
+char *token[10];
+char *stoken[10];
+char command[100];
+char command2[100];
+int status=1;
+bool pipeinput = false;bool backgroundinput = false;
+bool equalinput = false;bool nodirectcommands = false;
+bool appdirect = false;bool fwdirect = false;
+unordered_map<string,string> localmap;
 
-static void alarmHandler(int signo);
+void removespace(int i){
+
+	string s = token[i];
+	stringstream ss(s);
+	
+	string t="";
+	int j=0;
+	while(ss >> t){
+		args[j]= NULL;
+		args[j] = (char *)malloc(t.size()+1);
+		strcpy(args[j],t.c_str());
+		j++;
+	}
+	args[j] = NULL;
+}/////////////////////////////////////////////////////////////////////////////only used in pipe
+
+vector<string> split (string s, string delimiter) {
+    size_t pos_start = 0, pos_end, delim_len = delimiter.length();
+    string token;
+    while ((pos_end = s.find (delimiter, pos_start)) != string::npos) {
+        token = s.substr (pos_start, pos_end - pos_start);
+        pos_start = pos_end + delim_len;
+        res.push_back (token);
+    }
+
+    res.push_back (s.substr (pos_start));
+    return res;
+}/////////////////////////////////////////////////////////////////////////////used in myrcfile
 
 
-//-----------------------------------------------------------------------
 
-void printPrompt(){
-    // We print the prompt in the form "<user>@<host> <cwd> >"
-    char hostn[1204] = "";
-    char cwd[1024];
-    uid_t s = getuid();
-    gethostname(hostn, sizeof(hostn));
-    printf(GREEN "%d@%s %s ## " GREEN, s, hostn, getcwd(cwd, 1024));
+void tokensplit(string delimiter){
+	int numTokens=0;
+  			char *tokenpointer = strtok(command,delimiter.c_str());
+        	while(tokenpointer != NULL){
+        		token[numTokens] = (char *)malloc(sizeof(tokenpointer) + 1);
+        		strcpy(token[numTokens],tokenpointer);
+        		tokenpointer = strtok(NULL,delimiter.c_str());
+        		//cout << stoken[numTokens] << endl;
+        		numTokens++;
+        		}	
+        		token[numTokens] = NULL;
 }
 
 void welcomeScreen(){
@@ -45,75 +104,159 @@ void welcomeScreen(){
     printf("\n\n");
 }
 
-void executeBasic(char** argv){
-	pid_t pid;
-	pid = fork();
-	if(pid == 0){
-		if((execvp(argv[0],argv) < 0)) printf("command not found");
-		exit(1);
+void myrcfile(){
+
+	string etcpath = "/etc/passwd";
+	uid_t u = getuid();
+	stringstream uu;
+	uu << u;
+	string userid;
+	uu >> userid;
+	string myhome,t,temp;
+	ifstream etcpasswd;
+	etcpasswd.open(etcpath);
+    while(getline(etcpasswd,t)){
+           if(strstr(t.c_str(),userid.c_str())){ /////////////////////////////////////add string
+           	temp = t;
+           	break;
+           }
+    }
+    string delimiter = ":";
+    vector<string> v = split(temp, delimiter);
+    myhome = v[5];
+    string iduser = v[0];
+
+    string envpath = "/etc/environment";
+    string env;
+    ifstream e;
+    e.open(envpath);
+    getline(e,env);
+    int pos = env.find("=");
+    res.push_back(env.substr(pos+1));////////////////////////////////////////////////////Everything in res vector from Userid till PATH
+
+    /////////////////////////////////////////////////////////////////////////////////////create my rc file
+    string path = res[5] + "/" + res[0] + ".txt";
+	const char *nline = "\n";
+
+	/////////////////////////////////////////////////////////////////////////// check if file created earlier or not
+	if(open(path.c_str(), O_RDONLY,S_IRUSR|S_IWUSR)>0){
+		//donot create
 	}
 	else{
-		//waitpid(pid, 0, 0);
-		wait(NULL);
+		string ps1 = "PS1=NULL";
+		res.push_back(ps1);
+		int in = open(path.c_str(), O_CREAT|O_WRONLY,S_IRUSR|S_IWUSR);
+		for(int i=0;i<res.size();i++){
+			write(in,res[i].c_str(),res[i].size());
+			write(in,nline,strlen(nline));
+				}
+			close(in);
+			setenv("PATH",env.c_str(),1);
+			setenv("LOGNAME",res[0].c_str(),1);
+		}
+		/////////////////////////////////////////////////////////////////////////////////////////////////file created till PS1=Default
+		/////////////////////////////////////////////////////////////////////////////////////////////////Read File and store in localmap
+		string pp;
+		ifstream readd;
+		readd.open(path);
+		vector<string> vv ={"$username","$xxx","$userid","$groupid","$name","$HOME","$binbash","$PATH"};
+		vector<string> others;
+		int k=0;
+		string equalto = "=";
+		while(getline(readd,pp)){
+			if(k<=7) localmap[vv[k]] = pp;
+			else{
+				others.push_back(pp);
+			}
+			k++;
+		}
+
+		for(int i=0;i<others.size();i++)
+		{
+
+			string key = "$" + others[i].substr(0,1);
+			string value = others[i].substr(2);
+			localmap[key] = value;
+		}
+		//////////////////////////////////////////////////////////////////////////////////////////////////////Add Path into Envrionment
+		setenv("PATH",localmap["$PATH"].c_str(),1);
+ 		setenv("LOGNAME",localmap["$name"].c_str(),1);////////////////////////////////////////////////////////Environment set
+
+	} //final is File Created with system details, PS1 , and Global Variables
+
+
+void clearvariables(){
+	status=1;
+	pipeinput = false;
+	backgroundinput = false;
+	equalinput = false;
+	nodirectcommands = false;
+	appdirect = false;
+	fwdirect = false;
+	for(int i=0;i<10;i++)
+	{
+		args[i] = NULL;
+		token[i] = NULL;
+		stoken[i] = NULL;
+	}
+	command[0] = '\0';
+	command2[0] = '\0';
+}
+
+
+void executebasic(){
+	if(fork()==0){ execvp(stoken[0], stoken);}
+    else{wait(NULL);}
+}
+
+void executepipe()
+{	
+	int p[2];
+	pipe(p);
+	string s = "|";
+	tokensplit(s);
+	int i=0;
+	int f=0;
+	while(token[i] != NULL){
+		auto pid =fork();
+		if(pid == 0)
+		{
+			dup2(f,0); // /////////////////////////////////////////////////initially 
+			if(token[i+1] != NULL) dup2(p[1],1); ///////////////////////////second wale ka right open kr diya
+			close(p[0]);
+			close(p[1]);
+			removespace(i);
+			////////////////////check for fwd reverse
+			if(execvp(args[0],args) == -1){
+				cout << "Not" << endl;
+			}	
+			exit(0);
+		}
+		else{
+
+			wait(NULL);
+			close(p[1]);
+			f = p[0];
+			i++;
+
+		}
 	}
 }
 
-static void alarmHandler(int signo){
-    printf("Alarm signal sent!\n");
-
-	}
-
-
-void historyfiles(char **token){
-	int fd;
-	//cout << s;
-	char cwd[100];
-	char files[100];
-    if(getcwd(cwd,100) == NULL) perror("getcwd() error");
-    char *path = cwd;
-    strcat(path,"/commands.txt");
-    int i=0;
-
-
-	
-	if(historyread){
-		//int fd;	
-    	fd = open(path , O_CREAT,S_IRUSR|S_IWUSR);
-    	close(fd);
-    	historyread = false;
-	}
-	
-		//int fd;
-		fd=open(path,O_WRONLY|O_APPEND,S_IRUSR|S_IWUSR);
-		int w;
-		const char *ch = " ";
-		const char *nline = "\n";
-    	while(token[i] != NULL){
-    	//files[i] = token[i];
-    		w = write(fd,token[i],strlen(token[i]));
-    		w = write(fd,ch,strlen(ch));
-    		i++;
-    	}
-    	w = write(fd,nline,strlen(nline));
-		close(fd);
-	
-
-}
-
-
-void executefwd(char **token){
+void executefwd(){
 	
 	char *temp[10];
-	int i=0;
+	cout << "hi" << endl;
+	int i=0; 
 	string t = ">";
 
-    while(token[i] != t){        		
-       		temp[i] = (char *)malloc(sizeof(token[i]) + 1);
-      		strcpy(temp[i],token[i]);
+    while(stoken[i] != t){        		
+       		temp[i] = (char *)malloc(sizeof(stoken[i]) + 1);
+      		strcpy(temp[i],stoken[i]);
       		i++;
        	}
        	temp[i] = NULL;
-    	string file2 = token[++i];
+    	string file2 = stoken[++i];
     
     	if(fork()>0)
     	{
@@ -127,17 +270,18 @@ void executefwd(char **token){
     	}
 
 	}
-void executeappdirec(char **token){
+
+void executeappdirec(){
 	char *temp[10];
 	int i=0;
 	string t = ">>";
-	while(token[i] != t){
-		temp[i] = (char *)malloc(sizeof(token[i]) + 1);
-      	strcpy(temp[i],token[i]);
+	while(stoken[i] != t){
+		temp[i] = (char *)malloc(sizeof(stoken[i]) + 1);
+      	strcpy(temp[i],stoken[i]);
       	i++;
 	}
 	temp[i] = NULL;  
-	string file2 = token[++i];
+	string file2 = stoken[++i];
 	if(fork()>0)
     	{
     		wait(NULL);
@@ -148,97 +292,171 @@ void executeappdirec(char **token){
 			if((execvp(temp[0],temp) < 0)) printf("command not found");
 			exit(1);
     	}
-}
+    }
 
+void directcommands(){
 
-int main()
-{
-
-	printf("\033[2J\033[1;1H");
-	fflush(stdout);
-	welcomeScreen();
-	// global variable clear
-
-  	int status; 
-  	while(1){
-		
-  		char command[1024];
-  		bool fwddirec = false; bool appdirec= false; bool backgroundpro = false; bool presentwork = false;
-
-		char *token[1024];
-  		int e,numTokens=0;
-  		
-  		printPrompt();
-  		
-  		fgets(command,1024,stdin);
-
-  		if(command[0]== '\n') continue; ///nothing entere
-
-  		
-  		else{
-        	char *tokenpointer = strtok(command,"  \n");
+			int numTokens=0;
+  			char *tokenpointer = strtok(command,"  \n");
         	while(tokenpointer != NULL){
-        		
-        		token[numTokens] = (char *)malloc(sizeof(tokenpointer) + 1);
-        		strcpy(token[numTokens],tokenpointer);
+        		stoken[numTokens] = (char *)malloc(sizeof(tokenpointer) + 1);
+        		strcpy(stoken[numTokens],tokenpointer);
         		tokenpointer = strtok(NULL,"  \n");
         		numTokens++;
-        	}
-        	token[numTokens] = NULL;
-        	historyfiles(token);
-
-  			for(int i=0;i<sizeof(command);i++)
-  			{
-
-  				if(command[i] == '>' && command[i+1] == '>'){
-  					appdirec = true;
-  					break;
-  				}
-  				else if(command[i] == '>'){
-  					fwddirec = true;
-  					break;
-  				}
-  				else if(command[i] == '&'){
-  					backgroundpro = true;
-  					break;
-  				}
-  			}
-
-  			if(fwddirec){
-  				executefwd(token);
-
-  			}
-  			else if(appdirec){
-  				executeappdirec(token);
-
-  			}
-  			
-
-        	//Alarm detection
-        	else if(strstr(token[0],"alarm")){
-        		int seconds = atoi(token[1]);
-        		alarm(seconds);
-        		signal(SIGALRM, alarmHandler);
-        	}
-        	// cd is the first value
-       		else if(strstr(token[0],"cd"))
+        		}	
+        		stoken[numTokens] = NULL;
+        		// cout << stoken[0] << endl;
+        	//checkfor direct commands exit,pwd,echo,cd,clear,alarm
+        		if(strstr(stoken[0],"cd"))
        			{
-
-       				chdir(token[1]);
+       					chdir(stoken[1]);
        				}
-       		else if(strstr(token[0],"pwd")){
-       			char cwd[100];
-       			if(getcwd(cwd,100) != NULL) printf("%s\n", cwd);
-       			else perror("getcwd() error");
-       		}
-       				
-       		else{
-       			executeBasic(token);
-       		}
+       			else if(strstr(stoken[0],"pwd")){
+       				char cwd[20];
+       				char *arr[] = {(char *)"pwd", NULL};
+       				if(fork()==0){
+       					execvp(arr[0], arr);}
+       					else{wait(NULL);}
+       				//else perror("pwd() error");
+       			}
+       			else if(strstr(stoken[0],"exit")){
+       				cout << "Byeeee\n";
+       				status =0;
+       			}
+       			else if(strstr(stoken[0],"echo")){
+       			//redirect to echo
+       				if(strstr(command2,"$$")){
+       					cout << getpid() << endl;
+       				}
+       				else if(strstr(command2,"$?")){
+       					//////////////////////////////////////////////////////////////////////////pending
+       				}
+       				if(strchr(command2,'$')){
+       					string temp = stoken[1];
+       					cout << localmap[temp] << endl;
+       		
+       				}
+       				else{
+       					if(fork()==0) execvp(stoken[0],stoken);
+       						else{
+       						wait(NULL);
+       						}
+       					}
+       				}
+       			else if(strstr(stoken[0],"alarm")){
+       			//redirect to echo
+       			}
+       			else if(strstr(stoken[0],"export")){
+       			//redirect to eexport
+       			}
+       			else if(strstr(stoken[0],"alias")){///////////////////////////////////////////alias l ls -l
+       			//redirect to alias
+       				string key = stoken[1];
+       				string value = "";
+   					int i=3;
+   					value = value + stoken[2];
+   					while(stoken[i] != NULL){
+   						value = value + " " + stoken[i];
+   						i++;
+   					}
+   					localmap[key] = value;
+       			}
+       			else{
+      				//execute basic commands 	
+      				nodirectcommands = true;		
+       			}
 
-       	}	
+      }
 
-  	}
-  return 0;
+
+int main(){
+	environ = env_arr;
+	myrcfile();
+	
+	setenv("TERM","xterm-256color",1);
+	
+	// printf("\033[2J\033[1;1H");
+	// fflush(stdout);
+	welcomeScreen();
+	while(status){
+
+		clearvariables();
+		Trie *root= new Trie();
+      vector<string> v = {"/usr/local/sbin","/usr/local/bin","/usr/sbin","/usr/bin","/sbin","/bin","/usr/games","/usr/local/games"};
+      DIR *directory;
+      for(int i=0;i<v.size();i++)
+      {
+          directory = opendir(v[i].c_str());
+          struct dirent *dd;
+      
+          while(dd=readdir(directory)){
+              string temp = dd->d_name;
+              root->insert(temp);
+        } 
+      
+      }
+    clearvariables();
+    struct termios initial_state=enableRawMode();
+    sendinput(root,command);
+    disableRawMode(initial_state);
+
+		/////////////////////////////////////////////////////////////////////////check for pipe , & , = sign
+		if(strchr(command,'=')){ ///////////////////////////////////////////////////////////format  x=5
+			equalinput = true;
+				string s = "=";
+				tokensplit(s);
+				int i=1;
+				string ss="";
+				string key = "";
+				key = key + "$";
+				key = key + token[0];
+				while(token[i] != NULL){
+					ss = ss + token[i];
+					i++;
+				}
+				localmap[key] = ss;
+		}
+		else if(strchr(command,'|')){ ///////////////////////////////////////////////////////ls -l | grep a | sort
+			pipeinput = true;
+			cout << "pipe" << endl;
+			executepipe();
+
+		}
+		else if(strchr(command,'&')){ 
+			backgroundinput = true;
+		}
+
+  		if(command[0]== '\0' || equalinput==true || pipeinput==true || backgroundinput == true) continue;
+
+  		else{
+  			directcommands();
+  			
+  			 // if(strchr(command,'$')) cout << "yes" << endl;
+  			if(nodirectcommands){
+  				//input in stoken for separated via space
+  				//check what stoken contains > or >>
+  				for(int i=0;i<sizeof(command)-1;i++){
+ 
+  					if(command[i] == '>' && command[i+1] == '>'){
+  						appdirect = true;
+  						executeappdirec();
+  						break;
+  					}
+  					else if(command[i] == '>'){
+  						fwdirect = true;
+  						executefwd();
+  						break;
+  					}	
+  				}
+  				cout << "ho" << endl;
+  				if(!appdirect || !fwdirect) executebasic();
+
+  			}
+  		}
+
+
+	}
+
+return 0;
+
 }
-
