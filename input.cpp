@@ -36,6 +36,7 @@ using namespace std;
 
 #define DEL (127)
 #define ASCII_ESC 27
+extern string ps1;
 
 class Trie {
   public:
@@ -118,7 +119,8 @@ class Trie {
       }
 
 void printPrompt(){
-    string s= "$$";
+
+    string s= ps1;
     write(STDOUT_FILENO, s.c_str(),s.size());
 }
 
