@@ -48,6 +48,7 @@ bool pipeinput = false;bool backgroundinput = false;
 bool equalinput = false;bool nodirectcommands = false;
 bool appdirect = false;bool fwdirect = false;
 unordered_map<string,string> localmap;
+int error;
 
 
 /////////////////////////////////////////////////////////////////////////////only used in pipe
@@ -235,17 +236,21 @@ void clearvariables(){
 
 void executebasic(){
   if(fork()==0){ execvp(stoken[0], stoken);}
-    else{wait(NULL);}
+    else{
+    	int error;
+        wait(&error);
+        if( WIFEXITED(error)){
+          error=  WEXITSTATUS(error);
+        }
+    }
 }
 
 void executepipe()
 { 
-  int p[2];
+  int p[2],i=0,f=0;
   pipe(p);
   string s = "|";
   tokensplit(s);
-  int i=0;
-  int f=0;
   while(token[i] != NULL){
     auto pid =fork();
     if(pid == 0)
@@ -262,7 +267,6 @@ void executepipe()
       exit(0);
     }
     else{
-
       wait(NULL);
       close(p[1]);
       f = p[0];
@@ -285,7 +289,6 @@ void executefwd(){
         }
         temp[i] = NULL;
       string file2 = stoken[++i];
-      cout << file2 << endl;
       if(fork()>0)
       {
         wait(NULL);
@@ -293,7 +296,7 @@ void executefwd(){
       else{
         int fd = open(file2.c_str(), O_CREAT|O_WRONLY,S_IRUSR|S_IWUSR);
       dup2(fd,1);
-      if((execvp(temp[0],temp) < 0)) printf("command not found");
+      if((execvp(temp[0],temp) < 0)) printf("Command Not found");
       
       }
 
@@ -420,7 +423,7 @@ void directcommands(){
             
             else if(strstr(stoken[0],"exit")){
               cout << "Byeeee\n";
-              status =0;
+              exit(0);
             }
             
             else if(strstr(stoken[0],"echo")){
@@ -432,13 +435,14 @@ void directcommands(){
                         cout << localmap["$HOME"] << endl;
                       }
                       else if(strstr(command2,"$?")){
-                        //////////////////////////////////////////////////////////////////////////pending
+                        cout <<"Command exit status is "  << error << endl;
                       }
                       else if(strchr(command2,'$')){
                         string temp = stoken[1];
                         cout << localmap[temp] << endl;
                   
                       }
+
                       else{
                         if(fork()==0) execvp(stoken[0],stoken);
                           else{

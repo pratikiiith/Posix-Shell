@@ -103,11 +103,8 @@ class Trie {
           }
           node = node->map[word[i]];
         }
-
+         bool lastnode = isLastNode(node);
         bool leaf = node->isleaf;
-
-        bool lastnode = isLastNode(node);
-
         if(leaf && lastnode){
           ss.push_back(word); return ss;}
 
@@ -118,73 +115,88 @@ class Trie {
           return ss;
       }
 
-void printPrompt(){
+struct termios enableRawMode() {
+  struct termios instate;
+  tcgetattr(0, &instate);
+  struct termios terminalstate = instate;
+  terminalstate.c_lflag &= ~(ECHO | ICANON);
+  terminalstate.c_cc[VMIN] = 0;
+  terminalstate.c_cc[VTIME] = 1;
+  tcsetattr(0, TCSADRAIN, &terminalstate);
 
-    string s= ps1;
-    write(STDOUT_FILENO, s.c_str(),s.size());
+  return instate;
 }
 
-void display_options(Trie *root,char* buffer,int top_buffer){
+void disableRawMode(struct termios instate) {
+  tcsetattr(0, TCSADRAIN, &instate);
+}
+
+
+
+void dpterminal(Trie *root,char* command,int pos){
 
   string temp;
-  for(int i=0;i<top_buffer;i++)
+  for(int i=0;i<pos;i++)
   {
-    temp = temp + buffer[i];
+    temp = temp + command[i];
 
   }
   vector<string> ss = printstring(root,temp);
   char ch[] = "\n";
   for(int i=0;i<ss.size();i++)
   {
-    write(STDOUT_FILENO,ch,strlen(ch)); 
-    write(STDOUT_FILENO,ss[i].c_str(),ss[i].length());
+    write(1,ch,strlen(ch)); 
+    write(1,ss[i].c_str(),ss[i].length());
   }
   
-  printPrompt();
-  write(STDOUT_FILENO,buffer,top_buffer);
+  string s= ps1;
+  write(1, s.c_str(),s.size());
+  write(1,command,pos);
 
 }
 
-void disableRawMode(struct termios initial_state) {
-  tcsetattr(STDIN_FILENO, TCSADRAIN, &initial_state);
-}
 
-struct termios enableRawMode() {
-  struct termios initial_state;
-  tcgetattr(STDIN_FILENO, &initial_state);
-  struct termios raw = initial_state;
-  raw.c_lflag &= ~(ECHO | ICANON);
-  raw.c_cc[VMIN] = 0;
-  raw.c_cc[VTIME] = 1;
-  tcsetattr(STDIN_FILENO, TCSADRAIN, &raw);
 
-  return initial_state;
-}
-
-int logkey(Trie *root,char* buffer,int &top_buffer) {
+int keyinput(Trie *root,char* command,int &pos) {
   int status;
   char c;
   int flag=1;
   int enter_flag=1;
-  while ((status = read(STDIN_FILENO, &c, 1)) != 1);
+  while ((status = read(1, &c, 1)) != 1);
   switch(c){
     case DEL:{
-      if(top_buffer>0){
-        --top_buffer;
-        write(STDOUT_FILENO, "\033[1D",4);
-        write(STDOUT_FILENO, "\033[0K",4);
+      if(pos>0){
+        --pos;
+        write(1, "\033[1D",4);
+        write(1, "\033[0K",4);
       }
       flag=0;
       break;
     }
 
     case '\t':{
-      display_options(root,buffer,top_buffer);
+       string temp;
+        for(int i=0;i<pos;i++)
+        {
+          temp = temp + command[i];
+
+        }
+        vector<string> ss = printstring(root,temp);
+        char ch[] = "\n";
+        for(int i=0;i<ss.size();i++)
+        {
+          write(1,ch,strlen(ch)); 
+          write(1,ss[i].c_str(),ss[i].length());
+        }
+        
+        string s= ps1;
+        write(1, s.c_str(),s.size());
+        write(1,command,pos);
       flag=0;
       break;
     }
     case '\n':{
-      write(STDOUT_FILENO, "\n", 1);
+      write(1, "\n", 1);
       flag=0;
       enter_flag=0;
       break;
@@ -192,20 +204,21 @@ int logkey(Trie *root,char* buffer,int &top_buffer) {
   }
 
   if(!iscntrl(c) && flag){
-          write(STDOUT_FILENO,&c, 1);
-          buffer[top_buffer++]=c;}
+          write(1,&c, 1);
+          command[pos++]=c;}
 
   if(!enter_flag)
-      buffer[top_buffer]='\0';
+      command[pos]='\0';
 
   return enter_flag;
 }
-void sendinput(Trie *root,char* buffer){
+void sendinput(Trie *root,char* command){
   int it=1;
-  int top_buffer=0;
-  printPrompt();
+  int pos=0;
+   string s= ps1;
+    write(1, s.c_str(),s.size());
   while (it) {
-    it=logkey(root,buffer,top_buffer);
+    it=keyinput(root,command,pos);
   }
 }
 
