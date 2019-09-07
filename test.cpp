@@ -47,7 +47,9 @@ int status=1;
 bool pipeinput = false;bool backgroundinput = false;
 bool equalinput = false;bool nodirectcommands = false;
 bool appdirect = false;bool fwdirect = false;
+bool record = false;
 unordered_map<string,string> localmap;
+unordered_map<string,string> exportmap;
 int error;
 
 
@@ -159,7 +161,7 @@ void myrcfile(){
     vector<string> vv ={"$username","$xxx","$userid","$groupid","$name","$HOME","$binbash","$PATH"};
     vector<string> others;
     int k=0;
-    while(getline(readd,pp)){
+    while(getline(readd,pp)){ ////////////////////////////////////////////////////////////////////storing values from rc file to local map
       if(k<=7) localmap[vv[k]] = pp;
       else if(pp[0] == '.'){
         string key = pp.substr(0,4);
@@ -173,7 +175,7 @@ void myrcfile(){
     }
 
 
-    for(int i=0;i<others.size();i++)
+    for(int i=0;i<others.size();i++) //////////////////////////////////////////////////////////storing values of rc file to local map
     {
       string key,value;
       if(i==0){
@@ -208,6 +210,28 @@ void myrcfile(){
         localmap[key] = value;
       }
     }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////Check export file present or not.
+    int partid = getppid();
+    stringstream ppid;
+    ppid << partid;
+    string parentid;
+    ppid >> parentid; 
+    string exportpath = localmap["$HOME"] + "/" + parentid + ".txt"; 
+    if(open(exportpath.c_str(),O_RDONLY,S_IRUSR|S_IWUSR) > 0){
+    	string ep;
+    	ifstream exportread;
+    	exportread.open(exportpath);
+    	while(getline(exportread,ep)){
+    		string key , value;
+    		key = ep.substr(0,1);
+    		key = "$" + key;
+    		value = ep.substr(2);
+    		exportmap[key] = value;
+    	}
+
+    }
+
     //////////////////////////////////////////////////////////////////////////////////////////////////////Add Path into Envrionment
     setenv("PATH",localmap["$PATH"].c_str(),1);
     setenv("LOGNAME",localmap["$name"].c_str(),1);////////////////////////////////////////////////////////Environment set
@@ -235,14 +259,61 @@ void clearvariables(){
 
 
 void executebasic(){
-  if(fork()==0){ execvp(stoken[0], stoken);}
+
+  if(record == true){
+      int p[2];
+      pipe(p);
+      if (fork() == 0)
+      {
+          dup2(p[1], 1);
+          close(p[0]);
+          close(p[1]);
+          execvp(stoken[0],stoken);
+          _exit(127);
+          
+          }
+            close(p[1]);
+
+
+          if (fork() == 0)
+          {
+          string path = localmap["$HOME"] + "/" + "log.txt";
+          int logfd = open(path.c_str(), O_CREAT|O_WRONLY|O_APPEND,S_IRUSR|S_IWUSR);
+          char buffer[1];
+          int ssize=0;
+          char ch[] ="\n";
+          int i=0;
+          string s= "";
+          while(stoken[i] != NULL){///////////////////////////////////////////////////////////////////////input commands
+            string temp = stoken[i];
+            s = s + temp;
+            i++;
+          }
+          write(logfd,ch,2);
+          while(int n = read(p[0], buffer,1) > 0)
+          {
+           write(logfd, buffer,1);//////////////////////////////////////////////////////////////////////////////output command
+           write(1,buffer,1);
+          }
+          write(logfd,ch,2);
+          close(logfd);
+          _exit(127);
+          }
+
+        close(p[0]);   
+  }
+  
+  else{
+    if(fork()==0){ execvp(stoken[0], stoken);}
     else{
-    	int error;
-        wait(&error);
-        if( WIFEXITED(error)){
-          error=  WEXITSTATUS(error);
+      int errorlo;
+        wait(&errorlo);
+        if( WIFEXITED(errorlo)){
+          error=  WEXITSTATUS(errorlo);
         }
     }
+  }
+
 }
 
 void executepipe()
@@ -326,7 +397,7 @@ void executeappdirec(){
     }
 
 void directcommands(){
-
+		/////////////////////////////////////////////////////////////////////handle alias , ~ and create space delimeted tokens
         int numTokens=0;
         char *tokenpointer = strtok(command,"  \n");
           string aliastemp = tokenpointer;
@@ -365,6 +436,34 @@ void directcommands(){
 
 
             if(strstr(stoken[0],"cd")) chdir(stoken[1]);
+
+            else if(strstr(stoken[0],"record")){ //////////////////////////////record on , record off
+
+                if(strstr(stoken[1],"on")) record = true;
+                else  record = false;
+            }
+
+            else if(strstr(stoken[0],"./a.out")){
+            	cout << "here at ./a.out" << endl;
+            	if(exportmap.size() != 0){
+            		int id = getpid();
+            		string sss = to_string(id);
+            		string exportfilepath = localmap["$HOME"] + "/" + sss + ".txt";
+            		int cr = open(exportfilepath.c_str(), O_CREAT|O_WRONLY,S_IRUSR|S_IWUSR);
+            		 char ch[] = "\n";
+            		for(auto it=exportmap.begin();it!=exportmap.end();it++)
+            		{
+            			string s = it->first + "=" + it->second;
+            			s=s.substr(1);
+            			write(cr,s.c_str(),s.size());
+            			write(cr,ch,strlen(ch)); 
+            			//write(cr,newline.c_str(),2);
+            		}
+            		close(cr);	
+
+            	}
+            	executebasic();
+            }
             
             else if(strstr(stoken[0],"open")){
                 if(strstr(stoken[1],".mp4")){
@@ -439,13 +538,17 @@ void directcommands(){
                       }
                       else if(strchr(command2,'$')){
                         string temp = stoken[1];
-                        cout << localmap[temp] << endl;
-                  
+                        if(exportmap.find(temp) != exportmap.end()){
+                        }
+                        else{
+	                        cout << localmap[temp] << endl;
+                        }
                       }
 
                       else{
                         if(fork()==0) execvp(stoken[0],stoken);
                           else{
+     // printf("\033[2J\033[1;1H");
                           wait(NULL);
                           }
                         }
@@ -455,7 +558,13 @@ void directcommands(){
             }
             else if(strstr(stoken[0],"export")){
             //redirect to eexport
+            	string temp = stoken[1];
+            	temp = "$" + temp;
+
+            	exportmap[temp] = localmap[temp];
+
             }
+
             else if(strstr(stoken[0],"alias")){///////////////////////////////////////////alias l ls -l
             //redirect to alias
               string key = stoken[1];
@@ -475,6 +584,10 @@ void directcommands(){
 
       }
 
+void recordfeature()
+{
+
+}
 
 int main(){
      environ = env_arr;
@@ -532,32 +645,31 @@ int main(){
         string s = "=";
         tokensplit(s);
         int i=1;
-        cout << token[0] << endl;
         if(token[0] == "$PS1"){
 
-          cout << "hi" << endl;
           localmap["$PS1"] = token[1];
         }
-        string ss="";
-        string key = "";
-        key = key + "$";
-        key = key + token[0];
-        if(token[i][0] = '$'){
-          localmap[key] = localmap[token[i]];
-
-        }
         else{
-          while(token[i] != NULL){
-          ss = ss + token[i];
-          i++;
+        	string ss="";
+        	string key = "";
+        	key = key + "$";
+        	key = key + token[0];
+        	if(token[i][0] == '$'){
+          		localmap[key] = localmap[token[i]];
+       	 	}
+        	else{
+          		while(token[i] != NULL){
+          		ss = ss + token[i];
+          		i++;
+        	}
+        	localmap[key] = ss;
+        	}
         }
-        localmap[key] = ss;
-        }
+        
         
     }
     else if(strchr(command,'|')){ ///////////////////////////////////////////////////////ls -l | grep a | sort
       pipeinput = true;
-      cout << "pipe" << endl;
       executepipe();
 
     }
