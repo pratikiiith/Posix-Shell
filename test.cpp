@@ -316,35 +316,107 @@ void executebasic(){
 
 }
 
+// void executepipe()
+// { 
+//   int p[2],i=0,f=0;
+//   pipe(p);
+//   string s = "|";
+//   tokensplit(s);
+//   while(token[i] != NULL){
+//     auto pid =fork();
+//     if(pid == 0)
+//     {
+//       dup2(f,0); // /////////////////////////////////////////////////initially 
+//       if(token[i+1] != NULL) dup2(p[1],1); ///////////////////////////second wale ka right open kr diya
+//       close(p[0]);
+//       close(p[1]);
+//       removespace(i);
+//       ////////////////////check for fwd reverse
+//       if(execvp(args[0],args) == -1){
+//         cout << "Command Not Found" << endl;
+//       } 
+//       exit(0);
+//     }
+//     else{
+//       wait(NULL);
+//       close(p[1]);
+//       f = p[0];
+//       i++;
+
+//     }
+//   }
+// }
+
 void executepipe()
-{ 
-  int p[2],i=0,f=0;
-  pipe(p);
+{
+  string st1 = localmap["$HOME"] + "/pipe1";
+  string st2 = localmap["$HOME"] + "/pipe2";
+  int fd1 = open(st1.c_str(),O_CREAT|O_WRONLY,S_IRUSR|S_IWUSR);
+  int fd2 = open(st2.c_str(),O_CREAT|O_WRONLY,S_IRUSR|S_IWUSR);
+  close(fd1);
+  close(fd2);
   string s = "|";
   tokensplit(s);
-  while(token[i] != NULL){
-    auto pid =fork();
-    if(pid == 0)
-    {
-      dup2(f,0); // /////////////////////////////////////////////////initially 
-      if(token[i+1] != NULL) dup2(p[1],1); ///////////////////////////second wale ka right open kr diya
-      close(p[0]);
-      close(p[1]);
-      removespace(i);
-      ////////////////////check for fwd reverse
-      if(execvp(args[0],args) == -1){
-        cout << "Command Not Found" << endl;
-      } 
-      exit(0);
-    }
-    else{
-      wait(NULL);
-      close(p[1]);
-      f = p[0];
-      i++;
+  int i=0;
+  while(token[i]!=NULL){
+    i++;
+  }
+  int countpipe = i-1;
+  cout << countpipe << endl;
+  for(int j=0;j<=countpipe;j++)
+  {
 
+    removespace(j);
+    if(j==0)
+      {
+        fd1 = open(st1.c_str(),O_TRUNC|O_WRONLY,S_IRUSR|S_IWUSR);
+        
+        if(fork()==0){dup2(fd1,1);if(execvp(args[0],args) == -1){cout << "Command Not Found" << endl;}}
+        else
+          { wait(NULL);close(fd1);}
+         
+      }
+
+    else if(j==countpipe){
+        if(j%2 != 0){
+          fd1 = open(st1.c_str(),O_RDONLY,S_IRUSR|S_IWUSR);
+         
+          if(fork()==0){ dup2(fd1,0);if(execvp(args[0],args) == -1){cout << "Command Not Found" << endl;}}
+          else
+          { wait(NULL);close(fd1);}
+        }
+        else{
+           
+            fd2 = open(st2.c_str(),O_RDONLY,S_IRUSR|S_IWUSR);
+           
+            if(fork()==0){ dup2(fd2,0);if(execvp(args[0],args) == -1){cout << "Command Not Found" << endl;}}
+             else { wait(NULL);close(fd2);}
+        }
+      }
+
+    else{
+        if(j%2 != 0){
+          fd1 = open(st1.c_str(),O_RDONLY,S_IRUSR|S_IWUSR);
+          fd2 = open(st2.c_str(),O_TRUNC|O_WRONLY,S_IRUSR|S_IWUSR);
+          if(fork()==0){  dup2(fd2,1);dup2(fd1,0);if(execvp(args[0],args) == -1){cout << "Command Not Found" << endl;}}
+          else{
+            wait(NULL);
+            close(fd1);
+            close(fd2);}
+          }
+        else{
+            fd1 = open(st1.c_str(),O_TRUNC|O_WRONLY,S_IRUSR|S_IWUSR);
+            fd2 = open(st2.c_str(),O_RDONLY,S_IRUSR|S_IWUSR);
+            if(fork()==0){ dup2(fd1,1);dup2(fd2,0);if(execvp(args[0],args) == -1){cout << "Command Not Found" << endl;}}
+            
+            else{
+              close(fd1);
+            close(fd2);}
+      }
     }
   }
+
+
 }
 
 void executefwd(){
